@@ -1,0 +1,32 @@
+{
+  "name": "faucet-beacon",
+  "version": "1.0.0",
+  "private": true,
+  "description": "A Discord tITL faucet for the authenticated Interlink Testnet gateway.",
+  "type": "module",
+  "engines": { "node": ">=22.16.0" },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.test.json",
+    "dev": "tsx src/index.ts",
+    "start": "node dist/index.js",
+    "register": "tsx src/register.ts",
+    "doctor": "tsx src/doctor.ts",
+    "db:doctor": "tsx src/db-doctor.ts",
+    "probe:gateway": "tsx scripts/probe-gateway.ts",
+    "test": "tsc -p tsconfig.test.json --noEmit false --outDir .test-build && node .test-build/test/run.js",
+    "check": "npm run typecheck && npm test"
+  },
+  "dependencies": {
+    "csv-parse": "^6.1.0",
+    "discord.js": "^14.22.1",
+    "dotenv": "^17.2.3",
+    "ethers": "^6.15.0",
+    "siwe": "^3.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.18.0",
+    "tsx": "^4.20.6",
+    "typescript": "^5.9.3"
+  }
+}

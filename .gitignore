@@ -1,0 +1,12 @@
+node_modules/
+dist/
+.test-build/
+.env
+.env.*
+!.env.example
+.data/
+.npm-cache/
+*.log
+coverage/
+*.sqlite*
+*.lock/
