@@ -1,6 +1,47 @@
 # FaucetBeacon: GitHub se Render hosting
 
-GitHub code store karta hai. Bot Render ke **Background Worker** par chalega. Ek worker dono servers ko serve karega; wallet aur cooldown shared hain. Supabase mein existing payouts, settings aur cooldowns preserved rahenge.
+GitHub code store karta hai. Bot Render ki **Node Web Service** ya **Background Worker** par chal sakta hai. Ek active process dono servers ko serve karega; wallet aur cooldown shared hain. Supabase mein existing payouts, settings aur cooldowns preserved rahenge.
+
+## Existing Node bot jaisa Web Service setup
+
+Jis Render screen par **Build Command** aur **Start Command** dono hain, woh Node backend run kar sakti hai. Static Site mein long-running bot process nahi chalta. FaucetBeacon ke matching settings:
+
+| Render setting | Value |
+| --- | --- |
+| New service type | Web Service |
+| Repository | anish0083/FaucetBeacon |
+| Branch | main |
+| Language/Runtime | Node |
+| Root directory | Blank (repository root) |
+| Build Command | `npm ci --include=dev && npm run build` |
+| Start Command | `node --dns-result-order=ipv4first dist/index.js` |
+| Pre-Deploy Command | Blank |
+| Health Check Path | `/healthz` |
+| Instances | 1 |
+
+`npm ci` lockfile ke exact dependency versions install karta hai. TypeScript build `dist/index.js` banata hai, isliye old bot ka root `index.js` path yahan use nahi karna. Project Node 22 select karta hai; agar service par purana `NODE_VERSION` override hai to usse remove karo ya Node 22 set karo.
+
+Environment values:
+
+```text
+DISCORD_TOKEN=<local .env ka existing token>
+FAUCET_PRIVATE_KEY=<local .env ki same funding wallet key>
+SUPABASE_SECRET_KEY=<local .env ka server key>
+DISCORD_CLIENT_ID=1563942179502555186
+DISCORD_GUILD_IDS=1504044542842900481,1457514569739276561
+SUPABASE_URL=https://pypehbsuhuhnutxkphyf.supabase.co
+NODE_ENV=production
+DEFAULT_AMOUNT=0.1
+DEFAULT_COOLDOWN_HOURS=6
+```
+
+Render Web Service automatically `PORT` deta hai (normally 10000). Bot `0.0.0.0:$PORT` par minimal HTTP status endpoint listen karega; port detection error nahi aana chahiye. `/healthz` startup par 503 aur Discord ready hone par 200 deta hai. Ye claim API nahi hai, aur database/wallet secrets expose nahi karta. Health response payout confirmation ka proof nahi hai—actual claim receipt verify karo.
+
+Free plan testing ke liye select kar sakte ho, lekin 15 minutes inbound traffic na hone par Render service sleep kar sakta hai; tab bot claims aur alerts process nahi karega. Paid Web Service continuous availability ka option hai. Automatic keep-alive/ping workaround is project mein nahi hai.
+
+Blueprint se Web Service create karni ho to **New + → Blueprint → render-web.yaml** choose karo. Is alternative file ka default Free plan hai. **Dono Blueprints deploy mat karna.** Paid worker option neeche diya hai.
+
+Deploy se just pehle local bot stop karo (step 3), phir service deploy karke runtime logs aur `/healthz` check karo. Second-server invite aur Discord setup neeche same rehte hain.
 
 ## 1. Second server mein invite
 

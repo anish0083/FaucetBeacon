@@ -1,6 +1,6 @@
 import { Client, Events, GatewayIntentBits } from 'discord.js';
 import { setTimeout as delay } from 'node:timers/promises';
-import { loadConfig } from './config.js';
+import { loadConfig, type Config } from './config.js';
 import { SupabaseStore } from './supabase-store.js';
 import { FaucetService } from './service.js';
 import { InterlinkGateway } from './chain/gateway.js';
@@ -12,9 +12,18 @@ import { FaucetError, safeError } from './domain.js';
 import { registerGuildCommands } from './discord/register.js';
 import { BalanceAlerts } from './balance-alerts.js';
 import { createBalanceAlertTransport } from './discord/balance-alerts.js';
+import { startHealthServer, webPort } from './health-server.js';
 
 async function main(): Promise<void> {
   const config = loadConfig();
+  let ready=()=>false;
+  const http=await startHealthServer(webPort(),()=>ready());
+  if (http) console.log(`HTTP status listening on 0.0.0.0:${http.port}; health check: /healthz.`);
+  try {await runBot(config,check=>{ready=check;});}
+  finally {await http?.close();}
+}
+
+async function runBot(config:Config,setReady:(check:()=>boolean)=>void):Promise<void> {
   const store = new SupabaseStore({ ...config.supabase, guildIds: config.discord.guildIds });
   const health = await store.health();
   if (health.schemaVersion !== 3) throw new FaucetError('DATABASE_SCHEMA', 'Apply the current supabase/schema.sql (version 3, multiple servers) before starting the bot.');
@@ -56,6 +65,9 @@ async function main(): Promise<void> {
   };
   client.on(Events.GuildCreate,guild => { void register(guild.id).catch(error => console.error(safeError(error))); });
   let stopping = false;
+  let initialized = false;
+  // Readiness does not wait for lease ownership: old instances can release it during deploys.
+  setReady(()=>initialized && !stopping && client.isReady());
   const stop = () => { stopping = true; };
   process.once('SIGINT',stop);
   process.once('SIGTERM',stop);
@@ -76,6 +88,7 @@ async function main(): Promise<void> {
       const [settings,channels] = await Promise.all([context.store.settings(),context.store.channels()]);
       console.log(`Server ${guildId}: faucet ${settings.enabled ? 'running' : 'paused'}; ${channels.length} approved channel(s).`);
     }
+    initialized=true;
     while (!stopping) {
       if (client.isReady()) {
         await engine.flushNotifications(job=>messages.deliver(job),job=>messages.progress(job));

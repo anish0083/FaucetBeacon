@@ -1,0 +1,42 @@
+# Optional Node Web Service. Free compute can sleep after 15 minutes without inbound traffic.
+services:
+  - type: web
+    name: faucet-beacon
+    runtime: node
+    plan: free
+    region: singapore
+    branch: main
+    buildCommand: npm ci --include=dev && npm run build
+    startCommand: node --dns-result-order=ipv4first dist/index.js
+    healthCheckPath: /healthz
+    autoDeployTrigger: 'off'
+    maxShutdownDelaySeconds: 120
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: DISCORD_TOKEN
+        sync: false
+      - key: FAUCET_PRIVATE_KEY
+        sync: false
+      - key: SUPABASE_SECRET_KEY
+        sync: false
+      - key: DISCORD_CLIENT_ID
+        value: '1563942179502555186'
+      - key: DISCORD_GUILD_IDS
+        value: '1504044542842900481,1457514569739276561'
+      - key: SUPABASE_URL
+        value: https://pypehbsuhuhnutxkphyf.supabase.co
+      - key: RPC_BASE_URL
+        value: https://evm-rpc.test-net.interlinklabs.ai/v1
+      - key: CHAIN_ID
+        value: '19042026'
+      - key: TOKEN_SYMBOL
+        value: tITL
+      - key: DEFAULT_AMOUNT
+        value: '0.1'
+      - key: DEFAULT_COOLDOWN_HOURS
+        value: '6'
+      - key: REQUEST_CONCURRENCY
+        value: '8'
+      - key: REQUEST_QUEUE_LIMIT
+        value: '100'

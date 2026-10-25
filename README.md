@@ -1,6 +1,6 @@
 # Faucet Beacon 💧
 
-Render hosting: [step-by-step setup guide](RENDER_SETUP.md). The included `render.yaml` deploys one paid Docker Background Worker for both configured servers.
+Render hosting: [step-by-step setup guide](RENDER_SETUP.md). Use Node Web Service build/start commands to match an existing Node bot setup, or the Docker Background Worker option. `render-web.yaml` is the optional Web Service Blueprint; `render.yaml` remains the paid worker Blueprint. Deploy only one of them.
 
 A Discord faucet for **Interlink ITL Testnet**, paying native **tITL** from one shared funding wallet across an operator-approved list of Discord servers. Built with TypeScript, discord.js, ethers and the **FaucetBot Supabase database**.
 

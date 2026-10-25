@@ -10,3 +10,4 @@ import './payout-messages.test.js';
 import './work-queue.test.js';
 import './bot.test.js';
 import './balance-alerts.test.js';
+import './health-server.test.js';
