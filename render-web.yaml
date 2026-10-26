@@ -1,4 +1,4 @@
-# Optional Node Web Service. Free compute can sleep after 15 minutes without inbound traffic.
+# Optional Node Web Service. The process pings RENDER_EXTERNAL_URL/healthz so free idle sleep is less likely.
 services:
   - type: web
     name: faucet-beacon

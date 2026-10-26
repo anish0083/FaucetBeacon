@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { startHealthServer, webPort } from '../src/health-server.js';
+import { keepAliveIntervalMs, keepAliveTarget, startHealthServer, startKeepAlive, webPort } from '../src/health-server.js';
 import { errorCode } from './helpers.js';
 
 test('workers need no HTTP port and invalid configured ports fail clearly',async()=>{
@@ -34,4 +34,26 @@ test('HTTP exposes no payout operations or configuration and rejects mutations',
     assert.equal(mutation.status,405);assert.equal(mutation.headers.get('allow'),'GET, HEAD');
     const status=await (await fetch(base)).text();assert.doesNotMatch(status,/guild|wallet|token|secret|balance/i);
   } finally {await http.close();}
+});
+
+test('keep-alive uses the public Render URL and ignores localhost',()=>{
+  assert.equal(keepAliveTarget({}),null);
+  assert.equal(keepAliveTarget({RENDER_EXTERNAL_URL:'https://faucet-beacon.onrender.com'}), 'https://faucet-beacon.onrender.com/healthz');
+  assert.equal(keepAliveTarget({KEEP_ALIVE_URL:'faucet-beacon.onrender.com/other'}),'https://faucet-beacon.onrender.com/healthz');
+  assert.equal(keepAliveTarget({RENDER_EXTERNAL_URL:'http://127.0.0.1:10000'}),null);
+  assert.equal(keepAliveTarget({KEEP_ALIVE_URL:'https://user:pass@example.com'}),null);
+  assert.equal(keepAliveIntervalMs({}),8*60*1000);
+  assert.equal(keepAliveIntervalMs({KEEP_ALIVE_MS:'300000'}),300000);
+  assert.throws(()=>keepAliveIntervalMs({KEEP_ALIVE_MS:'1000'}),errorCode('CONFIG'));
+});
+
+test('keep-alive pings the public health URL on an interval',async()=>{
+  const hits:string[]=[];
+  assert.equal(startKeepAlive(null),null);
+  const stop=startKeepAlive('https://faucet-beacon.onrender.com/healthz',20,async target=>{hits.push(target);})!;
+  try {
+    await new Promise(resolve=>setTimeout(resolve,80));
+    assert.ok(hits.length>=1);
+    assert.equal(hits[0],'https://faucet-beacon.onrender.com/healthz');
+  } finally {stop();}
 });

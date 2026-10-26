@@ -12,15 +12,18 @@ import { FaucetError, safeError } from './domain.js';
 import { registerGuildCommands } from './discord/register.js';
 import { BalanceAlerts } from './balance-alerts.js';
 import { createBalanceAlertTransport } from './discord/balance-alerts.js';
-import { startHealthServer, webPort } from './health-server.js';
+import { keepAliveIntervalMs, keepAliveTarget, startHealthServer, startKeepAlive, webPort } from './health-server.js';
 
 async function main(): Promise<void> {
   const config = loadConfig();
   let ready=()=>false;
   const http=await startHealthServer(webPort(),()=>ready());
   if (http) console.log(`HTTP status listening on 0.0.0.0:${http.port}; health check: /healthz.`);
+  const target=keepAliveTarget();
+  const keepAlive=startKeepAlive(target,keepAliveIntervalMs());
+  if (target) console.log(`Keep-alive pinging ${target} every ${Math.round(keepAliveIntervalMs()/60000)} minutes.`);
   try {await runBot(config,check=>{ready=check;});}
-  finally {await http?.close();}
+  finally {keepAlive?.();await http?.close();}
 }
 
 async function runBot(config:Config,setReady:(check:()=>boolean)=>void):Promise<void> {

@@ -37,7 +37,7 @@ DEFAULT_COOLDOWN_HOURS=6
 
 Render Web Service automatically `PORT` deta hai (normally 10000). Bot `0.0.0.0:$PORT` par minimal HTTP status endpoint listen karega; port detection error nahi aana chahiye. `/healthz` startup par 503 aur Discord ready hone par 200 deta hai. Ye claim API nahi hai, aur database/wallet secrets expose nahi karta. Health response payout confirmation ka proof nahi hai—actual claim receipt verify karo.
 
-Free plan testing ke liye select kar sakte ho, lekin 15 minutes inbound traffic na hone par Render service sleep kar sakta hai; tab bot claims aur alerts process nahi karega. Paid Web Service continuous availability ka option hai. Automatic keep-alive/ping workaround is project mein nahi hai.
+Free plan testing ke liye select kar sakte ho. Render 15 minutes inbound HTTP na hone par Web Service sleep kar sakta hai; Discord WebSocket usme count nahi hota. Web Service start par bot `RENDER_EXTERNAL_URL/healthz` ko ~8 minute pe ping karta hai taake idle sleep na ho. Localhost ping kaam nahi karta. Render is workaround ko guarantee nahi karta; paid Background Worker continuous availability ka option hai.
 
 Blueprint se Web Service create karni ho to **New + → Blueprint → render-web.yaml** choose karo. Is alternative file ka default Free plan hai. **Dono Blueprints deploy mat karna.** Paid worker option neeche diya hai.
 

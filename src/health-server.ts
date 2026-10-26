@@ -2,11 +2,42 @@ import { createServer } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { FaucetError } from './domain.js';
 
+const KEEP_ALIVE_MS=8*60*1000;
+
 export function webPort(env:NodeJS.ProcessEnv=process.env):number|null {
   const value=env.PORT?.trim();
   if (!value) return null;
   if (!/^\d+$/.test(value) || Number(value)<1 || Number(value)>65535) throw new FaucetError('CONFIG','PORT must be an integer from 1 to 65535.');
   return Number(value);
+}
+
+/** Public HTTPS URL only: localhost pings never count as Render inbound traffic. */
+export function keepAliveTarget(env:NodeJS.ProcessEnv=process.env):string|null {
+  const raw=env.KEEP_ALIVE_URL?.trim()||env.RENDER_EXTERNAL_URL?.trim();
+  if (!raw) return null;
+  try {
+    const url=new URL(raw.includes('://')?raw:`https://${raw}`);
+    const host=url.hostname.toLowerCase();
+    if (!['http:','https:'].includes(url.protocol) || url.username || url.password) return null;
+    if (host==='localhost' || host==='127.0.0.1' || host==='::1' || host==='0.0.0.0') return null;
+    url.pathname='/healthz';url.search='';url.hash='';
+    return url.toString();
+  } catch { return null; }
+}
+
+export function keepAliveIntervalMs(env:NodeJS.ProcessEnv=process.env):number {
+  const value=env.KEEP_ALIVE_MS?.trim();
+  if (!value) return KEEP_ALIVE_MS;
+  if (!/^\d+$/.test(value) || Number(value)<60_000 || Number(value)>14*60*1000) throw new FaucetError('CONFIG','KEEP_ALIVE_MS must be an integer from 60000 to 840000.');
+  return Number(value);
+}
+
+export function startKeepAlive(url:string|null,intervalMs=KEEP_ALIVE_MS,ping:(target:string)=>Promise<unknown>=target=>fetch(target,{method:'HEAD',redirect:'manual',signal:AbortSignal.timeout(5000)})) {
+  if (!url) return null;
+  const tick=()=>{void ping(url).catch(()=>{});};
+  const timer=setInterval(tick,intervalMs);
+  timer.unref();
+  return ()=>clearInterval(timer);
 }
 
 /** HTTP status only: no claims, admin controls, balances or secrets are exposed. */
