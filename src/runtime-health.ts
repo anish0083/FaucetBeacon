@@ -1,23 +1,36 @@
 import { FaucetError } from './domain.js';
 
 export type StartupStage = 'database' | 'discord_login' | 'discord_gateway' | 'discord_ready' | 'commands' | 'chain' | 'settings' | 'running' | 'shutdown';
-export type RuntimeStatus = { status: 'starting' | 'ready' | 'reconnecting' | 'stopping'; stage: StartupStage };
+export type RuntimeStatus = { status: 'starting' | 'ready' | 'reconnecting' | 'stopping' | 'rate_limited'; stage: StartupStage; retryAfterSeconds?: number };
 
 /** Bound startup and lost Discord sessions, including promises that never settle. */
 export class RuntimeHealth {
   private stage: StartupStage = 'database';
-  private readonly startedAt: number;
+  private startupDeadline: number;
   private disconnectedAt: number | null = null;
+  private rateLimitedUntil = 0;
 
   constructor(private readonly now: () => number = () => performance.now(),
     private readonly startupTimeoutMs = 5 * 60_000, private readonly reconnectTimeoutMs = 2 * 60_000) {
-    this.startedAt = now();
+    this.startupDeadline = now() + startupTimeoutMs;
   }
 
   setStage(stage: StartupStage): void { if (this.stage !== 'shutdown') this.stage = stage; }
 
+  deferDiscordRetry(waitMs: number): void {
+    if (this.stage === 'shutdown' || !Number.isSafeInteger(waitMs) || waitMs <= 0) return;
+    // Discord REST adds a small rate-limit offset. Leave one extra second for it.
+    this.rateLimitedUntil = Math.max(this.rateLimitedUntil, this.now() + waitMs + 1000);
+    this.startupDeadline = Math.max(this.startupDeadline, this.rateLimitedUntil + this.startupTimeoutMs);
+    this.disconnectedAt = null;
+  }
+
   status(ready: boolean): RuntimeStatus {
     if (this.stage === 'shutdown') return { status: 'stopping', stage: this.stage };
+    if (this.stage === 'running' && ready) this.rateLimitedUntil = 0;
+    if (this.rateLimitedUntil > this.now()) return {
+      status: 'rate_limited', stage: this.stage, retryAfterSeconds: Math.ceil((this.rateLimitedUntil - this.now()) / 1000),
+    };
     if (this.stage !== 'running') return { status: 'starting', stage: this.stage };
     if (ready) {
       this.disconnectedAt = null;
@@ -29,7 +42,7 @@ export class RuntimeHealth {
 
   check(ready: boolean): RuntimeStatus {
     const status = this.status(ready);
-    if (status.status === 'starting' && this.now() - this.startedAt >= this.startupTimeoutMs) {
+    if (status.status === 'starting' && this.now() >= this.startupDeadline) {
       throw new FaucetError('STARTUP_TIMEOUT', `Bot startup stalled at ${this.stage} for ${this.startupTimeoutMs / 1000} seconds. Exiting so the host can restart it.`);
     }
     if (status.status === 'reconnecting' && this.now() - this.disconnectedAt! >= this.reconnectTimeoutMs) {

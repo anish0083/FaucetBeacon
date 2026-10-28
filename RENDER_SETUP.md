@@ -16,7 +16,7 @@ Jis Render screen par **Build Command** aur **Start Command** dono hain, woh Nod
 | Build Command | `npm ci --include=dev && npm run build` |
 | Start Command | `node --dns-result-order=ipv4first dist/index.js` |
 | Pre-Deploy Command | Blank |
-| Health Check Path | `/healthz` |
+| Health Check Path | `/livez` |
 | Instances | 1 |
 
 `npm ci` lockfile ke exact dependency versions install karta hai. TypeScript build `dist/index.js` banata hai, isliye old bot ka root `index.js` path yahan use nahi karna. Project Node 22 select karta hai; agar service par purana `NODE_VERSION` override hai to usse remove karo ya Node 22 set karo.
@@ -40,6 +40,8 @@ Render Web Service automatically `PORT` deta hai (normally 10000). Bot `0.0.0.0:
 Bot suddenly offline ho to Render **Logs** aur `/healthz` dono check karo. Startup response ab `stage` batata hai: `database`, `discord_login`, `commands`, `chain` ya `settings`. Previously connected bot Discord connection lose kare to `status: reconnecting` aur HTTP 503 milega. Startup total 5 minutes mein complete na ho, ya Discord 2 minutes tak reconnect na kare, process timeout log karke exit karega taake host restart kar sake. Pending payouts database se recover hote hain. Logs mein `DISCORD_RECONNECTING`, `DISCORD_RESUMED` aur unrecoverable disconnect ka close code bhi dikhega. Code `4004` token authentication failure aur `4014` disallowed intent indicate karta hai; Message Content Intent Developer Portal mein check karo. Old build ka sirf `starting` response startup aur disconnect mein difference nahi batata. Immediate recovery ke liye Render service restart karo; persistent issue ke liye timeout stage aur disconnect logs dekho.
 
 `discord_login` par atke to `DISCORD_API` logs dekho: gateway discovery ka HTTP status aur available retry delay print hota hai. HTTP 401 deployed token rejection, 403 denied access, aur 429 rate limit hai. Rate limit par repeated manual restarts mat karo; logged retry delay respect karo. HTTP 200 ke baad `discord_gateway` WebSocket connection aur `discord_ready` bot identification ke ready packet ka wait batate hain. `DISCORD_GATEWAY` logs connection, hello aur identification progress batate hain; raw debug data aur tokens print nahi hote. Public health response secrets expose kiye bina stage batata hai.
+
+HTTP 429 ke `Retry-After` ko bot respect karta hai: `/healthz` par HTTP 503 ke saath `status: rate_limited` aur `retryAfterSeconds` countdown milega. Startup/reconnect watchdog is explicit wait ke beech process restart nahi karta; cooldown ke baad normal deadlines resume hoti hain. Render **Health Check Path** `/livez` set karo: ye waiting process alive ho to HTTP 200 aur shutdown par 503 deta hai. `/healthz` actual bot readiness ke liye use karo. Existing Render service ka setting dashboard mein change karna hoga; Git push alone dashboard setting update nahi karta. Hosting provider ke sleep/resource limits still apply. Discord 41,450 seconds ka delay de to latest 429 response se approximately 11 hours 31 minutes wait required hai; code update cooldown ko shorten nahi karta.
 
 Free plan testing ke liye select kar sakte ho. Render 15 minutes inbound HTTP na hone par Web Service sleep kar sakta hai; Discord WebSocket usme count nahi hota. Web Service start par bot `RENDER_EXTERNAL_URL/healthz` ko ~8 minute pe ping karta hai taake idle sleep na ho. Localhost ping kaam nahi karta. Render is workaround ko guarantee nahi karta; paid Background Worker continuous availability ka option hai.
 

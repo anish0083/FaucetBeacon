@@ -74,3 +74,40 @@ test('stopping the watchdog cancels pending checks', t => {
   t.mock.timers.tick(100);
   assert.equal(failures, 0);
 });
+
+test('the 41450-second Discord cooldown suspends startup timeout and leaves a bounded recovery window', () => {
+  let now=0;
+  const health=new RuntimeHealth(()=>now,100,50);
+  health.setStage('discord_login');
+  health.deferDiscordRetry(41_450_000);
+  assert.deepEqual(health.check(false),{status:'rate_limited',stage:'discord_login',retryAfterSeconds:41451});
+  now=5*60_000;
+  assert.equal(health.check(false).status,'rate_limited');
+  now=41_451_000;
+  assert.deepEqual(health.check(false),{status:'starting',stage:'discord_login'});
+  now+=99;health.check(false);
+  now+=1;assert.throws(()=>health.check(false),errorCode('STARTUP_TIMEOUT'));
+});
+
+test('Discord cooldown also pauses reconnect timeout and a healthy connection clears it', () => {
+  let now=0;
+  const health=new RuntimeHealth(()=>now,100,50);
+  health.setStage('running');health.check(false);
+  health.deferDiscordRetry(1000);
+  now=100;assert.equal(health.check(false).status,'rate_limited');
+  now=2000;assert.equal(health.check(false).status,'reconnecting');
+  now=2049;health.check(false);
+  now=2050;assert.throws(()=>health.check(false),errorCode('DISCORD_RECONNECT_TIMEOUT'));
+  health.deferDiscordRetry(1000);
+  assert.equal(health.check(true).status,'ready');
+  assert.equal(health.check(false).status,'reconnecting');
+});
+
+test('invalid retry delays cannot disable the watchdog and cooldown cannot undo shutdown', () => {
+  let now=0;
+  const health=new RuntimeHealth(()=>now,100,50);
+  for(const delay of [NaN,Infinity,-1,0,1.5]) health.deferDiscordRetry(delay);
+  now=100;assert.throws(()=>health.check(false),errorCode('STARTUP_TIMEOUT'));
+  health.setStage('shutdown');health.deferDiscordRetry(41_450_000);
+  assert.equal(health.check(false).status,'stopping');
+});

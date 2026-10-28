@@ -59,6 +59,24 @@ test('HTTP distinguishes stalled startup, Discord reconnects and shutdown with u
   } finally {await http.close();}
 });
 
+test('Render liveness stays healthy during the Discord cooldown while bot readiness stays unavailable',async()=>{
+  let now=0;
+  const health=new RuntimeHealth(()=>now);
+  health.setStage('discord_login');health.deferDiscordRetry(41_450_000);
+  const http=(await startHealthServer(0,()=>health.status(false),'127.0.0.1'))!;
+  const base=`http://127.0.0.1:${http.port}`;
+  try {
+    now=5*60_000;
+    const readiness=await fetch(`${base}/healthz`);assert.equal(readiness.status,503);
+    assert.deepEqual(await readiness.json(),{service:'FaucetBeacon',status:'rate_limited',stage:'discord_login',retryAfterSeconds:41151});
+    const alive=await fetch(`${base}/livez`);assert.equal(alive.status,200);
+    assert.equal((await alive.json()).status,'rate_limited');
+    assert.equal((await fetch(`${base}/livez`,{method:'HEAD'})).status,200);
+    assert.equal((await fetch(`${base}/livez`,{method:'POST'})).status,405);
+    health.setStage('shutdown');assert.equal((await fetch(`${base}/livez`)).status,503);
+  } finally {await http.close();}
+});
+
 test('keep-alive uses the public Render URL and ignores localhost',()=>{
   assert.equal(keepAliveTarget({}),null);
   assert.equal(keepAliveTarget({RENDER_EXTERNAL_URL:'https://faucet-beacon.onrender.com'}), 'https://faucet-beacon.onrender.com/healthz');

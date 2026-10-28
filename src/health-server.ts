@@ -52,10 +52,11 @@ export async function startHealthServer(port:number|null,ready:()=>boolean|Runti
       response.setHeader('Allow','GET, HEAD');response.writeHead(405);response.end('{"error":"method_not_allowed"}');return;
     }
     const path=request.url?.split('?')[0];
-    if (path!=='/' && path!=='/healthz') {response.writeHead(404);response.end('{"error":"not_found"}');return;}
+    if (path!=='/' && path!=='/healthz' && path!=='/livez') {response.writeHead(404);response.end('{"error":"not_found"}');return;}
     const state=ready();
     const status=typeof state==='boolean'?{status:state?'ready':'starting'}:state;
-    const available=status.status==='ready';
+    // The host must keep a live process while Discord enforces a long cooldown.
+    const available=path==='/livez'?status.status!=='stopping':status.status==='ready';
     response.writeHead(available?200:503);
     response.end(request.method==='HEAD'?undefined:JSON.stringify({service:'FaucetBeacon',...status}));
   });

@@ -21,7 +21,8 @@ export function discordLoginError(error: unknown): FaucetError {
 
 /** Observe the existing REST transport; do not add requests or change rate-limit waits. */
 export function discordGatewayRequest(log: (message: string) => void = console.log,
-  request: typeof DefaultRestOptions.makeRequest = DefaultRestOptions.makeRequest): typeof request {
+  request: typeof DefaultRestOptions.makeRequest = DefaultRestOptions.makeRequest,
+  deferRetry: (waitMs: number) => void = () => {}): typeof request {
   return async (url, options) => {
     const target = new URL(url);
     const gateway = target.hostname === 'discord.com' && target.pathname === '/api/v10/gateway/bot';
@@ -33,7 +34,10 @@ export function discordGatewayRequest(log: (message: string) => void = console.l
         const seconds = retry === null ? NaN : Number(retry);
         const wait = Number.isFinite(seconds) && seconds >= 0 ? ` Retry after ${Math.ceil(seconds)} seconds.` : '';
         log(`DISCORD_API: Gateway information returned HTTP ${response.status}.${wait}`);
-        if (response.status === 429) log('DISCORD_RATE_LIMIT: Gateway discovery is waiting for Discord to allow requests from this host.');
+        if (response.status === 429) {
+          if (Number.isFinite(seconds) && seconds > 0) deferRetry(Math.ceil(seconds * 1000));
+          log('DISCORD_RATE_LIMIT: Gateway discovery is waiting for Discord to allow requests from this host.');
+        }
       }
       return response;
     } catch (error) {

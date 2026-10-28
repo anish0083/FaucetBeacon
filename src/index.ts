@@ -21,7 +21,7 @@ async function main(): Promise<void> {
   let ready=()=>false;
   const health=new RuntimeHealth();
   const http=await startHealthServer(webPort(),()=>health.status(ready()));
-  if (http) console.log(`HTTP status listening on 0.0.0.0:${http.port}; health check: /healthz.`);
+  if (http) console.log(`HTTP status listening on 0.0.0.0:${http.port}; bot readiness: /healthz; process health: /livez.`);
   const target=keepAliveTarget();
   const keepAlive=startKeepAlive(target,keepAliveIntervalMs());
   if (target) console.log(`Keep-alive pinging ${target} every ${Math.round(keepAliveIntervalMs()/60000)} minutes.`);
@@ -34,11 +34,11 @@ async function main(): Promise<void> {
   try {await runBot(config,check=>{ready=check;},stage=>{
     health.setStage(stage);
     console.log(`Bot stage: ${stage}.`);
-  });}
+  },waitMs=>health.deferDiscordRetry(waitMs));}
   finally {watchdog();keepAlive?.();await http?.close();}
 }
 
-async function runBot(config:Config,setReady:(check:()=>boolean)=>void,setStage:(stage:StartupStage)=>void):Promise<void> {
+async function runBot(config:Config,setReady:(check:()=>boolean)=>void,setStage:(stage:StartupStage)=>void,deferDiscordRetry:(waitMs:number)=>void):Promise<void> {
   setStage('database');
   const store = new SupabaseStore({ ...config.supabase, guildIds: config.discord.guildIds });
   const health = await store.health();
@@ -52,7 +52,7 @@ async function runBot(config:Config,setReady:(check:()=>boolean)=>void,setStage:
   const service = services.get(config.discord.guildId)!;
   const gateway = new InterlinkGateway({baseUrl:config.rpcBaseUrl,chainId:config.chainId,siweDomain:config.siweDomain,timeoutMs:config.rpcTimeoutMs,wallet:config.wallet});
   const chain = new NativeTransfers(gateway,{wallet:config.wallet,chainId:config.chainId,maxFeePerGas:config.maxFeePerGas,maxGasLimit:config.maxGasLimit});
-  const client = new Client({intents:[GatewayIntentBits.Guilds,GatewayIntentBits.GuildMessages,GatewayIntentBits.MessageContent],allowedMentions:{parse:[],repliedUser:false},rest:{makeRequest:discordGatewayRequest()}});
+  const client = new Client({intents:[GatewayIntentBits.Guilds,GatewayIntentBits.GuildMessages,GatewayIntentBits.MessageContent],allowedMentions:{parse:[],repliedUser:false},rest:{makeRequest:discordGatewayRequest(console.log,undefined,deferDiscordRetry)}});
   const engine = new PayoutEngine(service,chain,async (userId,channelId,guildId) => {
     await payoutChannel(client,channelId,guildId);
     return resolveActor(client,guildId,userId,channelId);

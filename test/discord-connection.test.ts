@@ -4,6 +4,7 @@ import { EventEmitter } from 'node:events';
 import { Events, type Client, type DefaultRestOptions } from 'discord.js';
 import { attachDiscordStartupDiagnostics, discordGatewayRequest, discordLoginError } from '../src/discord/connection.js';
 import type { StartupStage } from '../src/runtime-health.js';
+import { RuntimeHealth } from '../src/runtime-health.js';
 
 type DiscordResponse = Awaited<ReturnType<typeof DefaultRestOptions.makeRequest>>;
 
@@ -78,4 +79,18 @@ test('startup debug logs emit fixed progress labels and detach before reconnecti
   client.emit(Events.Debug, '[WS => Manager] Fetched Gateway Information');
   assert.equal(logs.length, 4);
   assert.equal(client.listenerCount(Events.Debug), 0);
+});
+
+test('an actual gateway 429 passes its retry delay to the watchdog without consuming or replaying the request', async () => {
+  let now=0;
+  const health=new RuntimeHealth(()=>now);
+  health.setStage('discord_login');
+  let requests=0;
+  const response=new Response('{}',{status:429,headers:{'retry-after':'41450'}});
+  const request=discordGatewayRequest(()=>{},async()=>{requests++;return response as unknown as DiscordResponse;},ms=>health.deferDiscordRetry(ms));
+  await request('https://discord.com/api/v10/gateway/bot',{});
+  now=10*60_000;
+  assert.equal(health.check(false).status,'rate_limited');
+  assert.equal(requests,1);assert.equal(response.bodyUsed,false);
+  await response.body?.cancel();
 });
