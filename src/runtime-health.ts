@@ -1,6 +1,6 @@
 import { FaucetError } from './domain.js';
 
-export type StartupStage = 'database' | 'discord_login' | 'commands' | 'chain' | 'settings' | 'running' | 'shutdown';
+export type StartupStage = 'database' | 'discord_login' | 'discord_gateway' | 'discord_ready' | 'commands' | 'chain' | 'settings' | 'running' | 'shutdown';
 export type RuntimeStatus = { status: 'starting' | 'ready' | 'reconnecting' | 'stopping'; stage: StartupStage };
 
 /** Bound startup and lost Discord sessions, including promises that never settle. */
@@ -14,7 +14,7 @@ export class RuntimeHealth {
     this.startedAt = now();
   }
 
-  setStage(stage: StartupStage): void { this.stage = stage; }
+  setStage(stage: StartupStage): void { if (this.stage !== 'shutdown') this.stage = stage; }
 
   status(ready: boolean): RuntimeStatus {
     if (this.stage === 'shutdown') return { status: 'stopping', stage: this.stage };

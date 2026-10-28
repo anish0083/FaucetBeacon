@@ -40,6 +40,7 @@ test('an intentional shutdown does not trigger a connection restart', () => {
   health.setStage('running');
   health.check(false);
   health.setStage('shutdown');
+  health.setStage('discord_ready'); // A late startup event cannot undo shutdown.
   now = 1000;
   assert.deepEqual(health.check(false), { status: 'stopping', stage: 'shutdown' });
 });

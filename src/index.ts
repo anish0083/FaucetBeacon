@@ -14,6 +14,7 @@ import { BalanceAlerts } from './balance-alerts.js';
 import { createBalanceAlertTransport } from './discord/balance-alerts.js';
 import { keepAliveIntervalMs, keepAliveTarget, startHealthServer, startKeepAlive, webPort } from './health-server.js';
 import { RuntimeHealth, startRuntimeWatchdog, type StartupStage } from './runtime-health.js';
+import { attachDiscordStartupDiagnostics, discordGatewayRequest, discordLoginError } from './discord/connection.js';
 
 async function main(): Promise<void> {
   const config = loadConfig();
@@ -51,7 +52,7 @@ async function runBot(config:Config,setReady:(check:()=>boolean)=>void,setStage:
   const service = services.get(config.discord.guildId)!;
   const gateway = new InterlinkGateway({baseUrl:config.rpcBaseUrl,chainId:config.chainId,siweDomain:config.siweDomain,timeoutMs:config.rpcTimeoutMs,wallet:config.wallet});
   const chain = new NativeTransfers(gateway,{wallet:config.wallet,chainId:config.chainId,maxFeePerGas:config.maxFeePerGas,maxGasLimit:config.maxGasLimit});
-  const client = new Client({intents:[GatewayIntentBits.Guilds,GatewayIntentBits.GuildMessages,GatewayIntentBits.MessageContent],allowedMentions:{parse:[],repliedUser:false}});
+  const client = new Client({intents:[GatewayIntentBits.Guilds,GatewayIntentBits.GuildMessages,GatewayIntentBits.MessageContent],allowedMentions:{parse:[],repliedUser:false},rest:{makeRequest:discordGatewayRequest()}});
   const engine = new PayoutEngine(service,chain,async (userId,channelId,guildId) => {
     await payoutChannel(client,channelId,guildId);
     return resolveActor(client,guildId,userId,channelId);
@@ -92,12 +93,14 @@ async function runBot(config:Config,setReady:(check:()=>boolean)=>void,setStage:
   client.on(Events.ShardReconnecting,id => console.log(`DISCORD_RECONNECTING: Shard ${id} is reconnecting.`));
   client.on(Events.ShardResume,id => console.log(`DISCORD_RESUMED: Shard ${id} resumed its connection.`));
   client.on(Events.ClientReady,() => console.log('DISCORD_READY: Discord connection is ready.'));
+  const stopDiagnostics=attachDiscordStartupDiagnostics(client,setStage);
   try {
     setStage('discord_login');
-    await client.login(config.discord.token).catch(() => {
-      throw new FaucetError('DISCORD_LOGIN','Discord login failed. Check DISCORD_TOKEN and enable Message Content Intent in the developer portal.');
+    await client.login(config.discord.token).catch(error => {
+      throw discordLoginError(error);
     });
     if (!client.isReady()) await new Promise<void>(resolve => client.once(Events.ClientReady,() => resolve()));
+    stopDiagnostics();
     setStage('commands');
     for (const guildId of config.discord.guildIds) {
       if (client.guilds.cache.has(guildId)) await register(guildId);
@@ -123,6 +126,7 @@ async function runBot(config:Config,setReady:(check:()=>boolean)=>void,setStage:
       if (!stopping) await delay(config.pollIntervalMs);
     }
   } finally {
+    stopDiagnostics();
     setStage('shutdown');
     await engine.close();
     await client.destroy();
