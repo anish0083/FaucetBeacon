@@ -13,20 +13,32 @@ import { registerGuildCommands } from './discord/register.js';
 import { BalanceAlerts } from './balance-alerts.js';
 import { createBalanceAlertTransport } from './discord/balance-alerts.js';
 import { keepAliveIntervalMs, keepAliveTarget, startHealthServer, startKeepAlive, webPort } from './health-server.js';
+import { RuntimeHealth, startRuntimeWatchdog, type StartupStage } from './runtime-health.js';
 
 async function main(): Promise<void> {
   const config = loadConfig();
   let ready=()=>false;
-  const http=await startHealthServer(webPort(),()=>ready());
+  const health=new RuntimeHealth();
+  const http=await startHealthServer(webPort(),()=>health.status(ready()));
   if (http) console.log(`HTTP status listening on 0.0.0.0:${http.port}; health check: /healthz.`);
   const target=keepAliveTarget();
   const keepAlive=startKeepAlive(target,keepAliveIntervalMs());
   if (target) console.log(`Keep-alive pinging ${target} every ${Math.round(keepAliveIntervalMs()/60000)} minutes.`);
-  try {await runBot(config,check=>{ready=check;});}
-  finally {keepAlive?.();await http?.close();}
+  const watchdog=startRuntimeWatchdog(health,()=>ready(),error=>{
+    console.error(safeError(error));
+    // Cleanup can also be blocked on the failed network. Durable payouts and the
+    // expiring database lease let a replacement process recover safely.
+    process.exit(1);
+  });
+  try {await runBot(config,check=>{ready=check;},stage=>{
+    health.setStage(stage);
+    console.log(`Bot stage: ${stage}.`);
+  });}
+  finally {watchdog();keepAlive?.();await http?.close();}
 }
 
-async function runBot(config:Config,setReady:(check:()=>boolean)=>void):Promise<void> {
+async function runBot(config:Config,setReady:(check:()=>boolean)=>void,setStage:(stage:StartupStage)=>void):Promise<void> {
+  setStage('database');
   const store = new SupabaseStore({ ...config.supabase, guildIds: config.discord.guildIds });
   const health = await store.health();
   if (health.schemaVersion !== 3) throw new FaucetError('DATABASE_SCHEMA', 'Apply the current supabase/schema.sql (version 3, multiple servers) before starting the bot.');
@@ -71,27 +83,37 @@ async function runBot(config:Config,setReady:(check:()=>boolean)=>void):Promise<
   let initialized = false;
   // Readiness does not wait for lease ownership: old instances can release it during deploys.
   setReady(()=>initialized && !stopping && client.isReady());
-  const stop = () => { stopping = true; };
+  const stop = () => { stopping = true;setStage('shutdown'); };
   process.once('SIGINT',stop);
   process.once('SIGTERM',stop);
   client.on(Events.Error,() => console.error('DISCORD_CONNECTION: Discord reported a connection error.'));
+  client.on(Events.ShardError,(_error,id) => console.error(`DISCORD_CONNECTION: Shard ${id} reported a connection error.`));
+  client.on(Events.ShardDisconnect,(event,id) => console.error(`DISCORD_DISCONNECTED: Shard ${id} closed with code ${event.code}.`));
+  client.on(Events.ShardReconnecting,id => console.log(`DISCORD_RECONNECTING: Shard ${id} is reconnecting.`));
+  client.on(Events.ShardResume,id => console.log(`DISCORD_RESUMED: Shard ${id} resumed its connection.`));
+  client.on(Events.ClientReady,() => console.log('DISCORD_READY: Discord connection is ready.'));
   try {
+    setStage('discord_login');
     await client.login(config.discord.token).catch(() => {
       throw new FaucetError('DISCORD_LOGIN','Discord login failed. Check DISCORD_TOKEN and enable Message Content Intent in the developer portal.');
     });
     if (!client.isReady()) await new Promise<void>(resolve => client.once(Events.ClientReady,() => resolve()));
+    setStage('commands');
     for (const guildId of config.discord.guildIds) {
       if (client.guilds.cache.has(guildId)) await register(guildId);
       else console.log(`Awaiting an invite to allowlisted server ${guildId}.`);
     }
     // The chain client refuses both submissions and receipt reads until verified.
+    setStage('chain');
     try { await chain.initialize(); } catch (error) { console.error(safeError(error)); }
     console.log(`Faucet Beacon connected as ${client.user?.tag}. Funding address: ${config.wallet.address}.`);
+    setStage('settings');
     for (const [guildId, context] of services) {
       const [settings,channels] = await Promise.all([context.store.settings(),context.store.channels()]);
       console.log(`Server ${guildId}: faucet ${settings.enabled ? 'running' : 'paused'}; ${channels.length} approved channel(s).`);
     }
     initialized=true;
+    setStage(stopping?'shutdown':'running');
     while (!stopping) {
       if (client.isReady()) {
         await engine.flushNotifications(job=>messages.deliver(job),job=>messages.progress(job));
@@ -101,6 +123,7 @@ async function runBot(config:Config,setReady:(check:()=>boolean)=>void):Promise<
       if (!stopping) await delay(config.pollIntervalMs);
     }
   } finally {
+    setStage('shutdown');
     await engine.close();
     await client.destroy();
     process.removeListener('SIGINT',stop);

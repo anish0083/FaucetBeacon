@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { keepAliveIntervalMs, keepAliveTarget, startHealthServer, startKeepAlive, webPort } from '../src/health-server.js';
 import { errorCode } from './helpers.js';
+import { RuntimeHealth } from '../src/runtime-health.js';
 
 test('workers need no HTTP port and invalid configured ports fail clearly',async()=>{
   assert.equal(webPort({}),null);assert.equal(webPort({PORT:''}),null);assert.equal(webPort({PORT:'10000'}),10000);
@@ -33,6 +34,28 @@ test('HTTP exposes no payout operations or configuration and rejects mutations',
     const mutation=await fetch(`${base}/healthz`,{method:'POST',body:'{}'});
     assert.equal(mutation.status,405);assert.equal(mutation.headers.get('allow'),'GET, HEAD');
     const status=await (await fetch(base)).text();assert.doesNotMatch(status,/guild|wallet|token|secret|balance/i);
+  } finally {await http.close();}
+});
+
+test('HTTP distinguishes stalled startup, Discord reconnects and shutdown with unhealthy probes',async()=>{
+  let ready=false;
+  const health=new RuntimeHealth();
+  const http=(await startHealthServer(0,()=>health.status(ready),'127.0.0.1'))!;
+  const base=`http://127.0.0.1:${http.port}/healthz`;
+  try {
+    health.setStage('discord_login');
+    const startup=await fetch(base);assert.equal(startup.status,503);
+    assert.deepEqual(await startup.json(),{service:'FaucetBeacon',status:'starting',stage:'discord_login'});
+    health.setStage('running');ready=true;
+    assert.equal((await fetch(base)).status,200);
+    ready=false;
+    const reconnect=await fetch(base);assert.equal(reconnect.status,503);
+    assert.deepEqual(await reconnect.json(),{service:'FaucetBeacon',status:'reconnecting',stage:'running'});
+    assert.equal((await fetch(base,{method:'HEAD'})).status,503);
+    ready=true;assert.equal((await fetch(base)).status,200);
+    health.setStage('shutdown');
+    const shutdown=await fetch(base);assert.equal(shutdown.status,503);
+    assert.deepEqual(await shutdown.json(),{service:'FaucetBeacon',status:'stopping',stage:'shutdown'});
   } finally {await http.close();}
 });
 

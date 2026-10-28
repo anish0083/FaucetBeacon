@@ -1,6 +1,7 @@
 import { createServer } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { FaucetError } from './domain.js';
+import type { RuntimeStatus } from './runtime-health.js';
 
 const KEEP_ALIVE_MS=8*60*1000;
 
@@ -41,7 +42,7 @@ export function startKeepAlive(url:string|null,intervalMs=KEEP_ALIVE_MS,ping:(ta
 }
 
 /** HTTP status only: no claims, admin controls, balances or secrets are exposed. */
-export async function startHealthServer(port:number|null,ready:()=>boolean,host='0.0.0.0') {
+export async function startHealthServer(port:number|null,ready:()=>boolean|RuntimeStatus,host='0.0.0.0') {
   if (port===null) return null;
   const server=createServer((request,response)=>{
     response.setHeader('Content-Type','application/json; charset=utf-8');
@@ -52,9 +53,11 @@ export async function startHealthServer(port:number|null,ready:()=>boolean,host=
     }
     const path=request.url?.split('?')[0];
     if (path!=='/' && path!=='/healthz') {response.writeHead(404);response.end('{"error":"not_found"}');return;}
-    const available=ready();
+    const state=ready();
+    const status=typeof state==='boolean'?{status:state?'ready':'starting'}:state;
+    const available=status.status==='ready';
     response.writeHead(available?200:503);
-    response.end(request.method==='HEAD'?undefined:JSON.stringify({service:'FaucetBeacon',status:available?'ready':'starting'}));
+    response.end(request.method==='HEAD'?undefined:JSON.stringify({service:'FaucetBeacon',...status}));
   });
   server.maxConnections=100;
   server.headersTimeout=5000;server.requestTimeout=5000;server.keepAliveTimeout=1000;
